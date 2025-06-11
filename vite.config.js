@@ -6,8 +6,7 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(),tailwindcss()],
-  base: '/Wall-Chess/',
-  build: {
+  base: './',  build: {
     outDir: 'dist',
     assetsDir: 'assets'
   },
