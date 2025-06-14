@@ -1,586 +1,595 @@
-import { useState, useEffect, useCallback } from 'react'
-import './App.css'
+import { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button.jsx';
+import './App.css';
 
+// Game constants
 const BOARD_SIZE = 9;
-const INITIAL_WALLS = 8; // 8 walls per player as requested
+const WALLS_PER_PLAYER = 8;
+
+// Initialize empty board
+const createBoard = () => {
+  return Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+};
+
+// Initialize walls
+const createWalls = () => ({
+  horizontal: Array(BOARD_SIZE - 1).fill(null).map(() => Array(BOARD_SIZE).fill(false)),
+  vertical: Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE - 1).fill(false))
+});
+
+// Sound effects using Web Audio API
+const createAudioContext = () => {
+  if (typeof window !== 'undefined' && window.AudioContext) {
+    return new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return null;
+};
+
+const playSound = (audioContext, frequency, duration, type = 'sine') => {
+  if (!audioContext) return;
+  
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  
+  oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+  oscillator.type = type;
+  
+  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+  
+  oscillator.start(audioContext.currentTime);
+  oscillator.stop(audioContext.currentTime + duration);
+};
+
+// AI Logic
+const findPath = (start, goal, walls) => {
+  // Simple BFS pathfinding
+  const queue = [[start.row, start.col, 0]];
+  const visited = new Set();
+  
+  while (queue.length > 0) {
+    const [row, col, distance] = queue.shift();
+    const key = `${row},${col}`;
+    
+    if (visited.has(key)) continue;
+    visited.add(key);
+    
+    // Check if reached goal
+    if ((goal === 'top' && row === 0) || (goal === 'bottom' && row === BOARD_SIZE - 1)) {
+      return distance;
+    }
+    
+    // Check all 4 directions
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [dr, dc] of directions) {
+      const newRow = row + dr;
+      const newCol = col + dc;
+      
+      if (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
+        // Check for walls
+        let blocked = false;
+        if (dr === 1 && walls.horizontal[row] && walls.horizontal[row][col]) blocked = true;
+        if (dr === -1 && walls.horizontal[newRow] && walls.horizontal[newRow][col]) blocked = true;
+        if (dc === 1 && walls.vertical[row] && walls.vertical[row][col]) blocked = true;
+        if (dc === -1 && walls.vertical[row] && walls.vertical[row][newCol]) blocked = true;
+        
+        if (!blocked) {
+          queue.push([newRow, newCol, distance + 1]);
+        }
+      }
+    }
+  }
+  
+  return Infinity; // No path found
+};
+
+const getAIMove = (players, walls, difficulty) => {
+  const aiPlayer = 2;
+  const humanPlayer = 1;
+  const aiPos = players[aiPlayer];
+  const humanPos = players[humanPlayer];
+  
+  // Get all possible moves
+  const possibleMoves = [];
+  const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  
+  for (const [dr, dc] of directions) {
+    const newRow = aiPos.row + dr;
+    const newCol = aiPos.col + dc;
+    
+    if (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
+      // Check for walls
+      let blocked = false;
+      if (dr === 1 && walls.horizontal[aiPos.row] && walls.horizontal[aiPos.row][aiPos.col]) blocked = true;
+      if (dr === -1 && walls.horizontal[newRow] && walls.horizontal[newRow][aiPos.col]) blocked = true;
+      if (dc === 1 && walls.vertical[aiPos.row] && walls.vertical[aiPos.row][aiPos.col]) blocked = true;
+      if (dc === -1 && walls.vertical[aiPos.row] && walls.vertical[aiPos.row][newCol]) blocked = true;
+      
+      // Check if position is occupied by human player
+      if (newRow === humanPos.row && newCol === humanPos.col) blocked = true;
+      
+      if (!blocked) {
+        possibleMoves.push({ row: newRow, col: newCol });
+      }
+    }
+  }
+  
+  if (possibleMoves.length === 0) return null;
+  
+  // AI strategy based on difficulty
+  switch (difficulty) {
+    case 'easy':
+      // Random move
+      return possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+      
+    case 'medium':
+      // Move towards goal with some randomness
+      const goalRow = BOARD_SIZE - 1;
+      let bestMove = possibleMoves[0];
+      let bestDistance = Math.abs(bestMove.row - goalRow);
+      
+      for (const move of possibleMoves) {
+        const distance = Math.abs(move.row - goalRow);
+        if (distance < bestDistance || (distance === bestDistance && Math.random() < 0.3)) {
+          bestMove = move;
+          bestDistance = distance;
+        }
+      }
+      return bestMove;
+      
+    case 'hard':
+      // Advanced strategy: minimize own path while maximizing opponent's path
+      let bestMoveAdvanced = possibleMoves[0];
+      let bestScore = -Infinity;
+      
+      for (const move of possibleMoves) {
+        const tempPlayers = {
+          ...players,
+          [aiPlayer]: { ...players[aiPlayer], row: move.row, col: move.col }
+        };
+        
+        const aiDistance = findPath(move, 'bottom', walls);
+        const humanDistance = findPath(humanPos, 'top', walls);
+        
+        // Score: prioritize shorter path for AI and longer path for human
+        const score = humanDistance - aiDistance;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestMoveAdvanced = move;
+        }
+      }
+      
+      return bestMoveAdvanced;
+      
+    default:
+      return possibleMoves[0];
+  }
+};
+
+// Welcome modal component
+const WelcomeModal = ({ onClose, onStartGame, onStartAI }) => {
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <h2>مرحباً بك في Wall Chess!</h2>
+        <div className="rules-section">
+          <h3>قواعد اللعبة:</h3>
+          <ul>
+            <li>🎯 <strong>الهدف:</strong> كن أول من يصل إلى الجانب الآخر من اللوحة</li>
+            <li>🔴 <strong>اللاعب الأحمر:</strong> يبدأ من الأسفل ويحاول الوصول للأعلى</li>
+            <li>🔵 <strong>اللاعب الأزرق:</strong> يبدأ من الأعلى ويحاول الوصول للأسفل</li>
+            <li>👣 <strong>الحركة:</strong> مربع واحد في أي اتجاه (أعلى، أسفل، يمين، يسار)</li>
+            <li>🦘 <strong>القفز:</strong> إذا كان اللاعب الآخر مجاوراً، يمكنك القفز فوقه</li>
+            <li>🧱 <strong>الجدران:</strong> لديك 8 جدران لمنع حركة الخصم</li>
+            <li>🚫 <strong>قيد مهم:</strong> لا يمكن وضع جدار يمنع اللاعب من الوصول نهائياً</li>
+          </ul>
+          
+          <h3>كيفية وضع الجدران:</h3>
+          <ul>
+            <li>🔄 استخدم زر "تبديل الوضع" للانتقال بين وضع التحريك ووضع الجدران</li>
+            <li>📏 كل جدار يغطي مربعين متجاورين</li>
+            <li>🎯 انقر على الخط بين المربعات لوضع الجدار</li>
+            <li>↩️ يمكنك استخدام زر "تراجع" للعودة خطوة واحدة</li>
+          </ul>
+        </div>
+        
+        <div className="modal-buttons">
+          <Button onClick={onStartGame} className="start-button">
+            لاعب ضد لاعب 👥
+          </Button>
+          <div className="ai-buttons">
+            <h3>اللعب ضد الكمبيوتر:</h3>
+            <Button onClick={() => onStartAI('easy')} className="ai-button easy">
+              سهل 🤖
+            </Button>
+            <Button onClick={() => onStartAI('medium')} className="ai-button medium">
+              متوسط 🎯
+            </Button>
+            <Button onClick={() => onStartAI('hard')} className="ai-button hard">
+              صعب 🧠
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 function App() {
-  // Game state
-  const [gameMode, setGameMode] = useState('menu'); // 'menu', 'pvp', 'ai-easy', 'ai-medium', 'ai-hard'
-  const [currentPlayer, setCurrentPlayer] = useState(1);
+  const [board, setBoard] = useState(createBoard());
+  const [walls, setWalls] = useState(createWalls());
   const [players, setPlayers] = useState({
-    1: { row: 8, col: 4, walls: INITIAL_WALLS }, // Red player starts at bottom
-    2: { row: 0, col: 4, walls: INITIAL_WALLS }  // Blue player starts at top
+    1: { row: 8, col: 4, wallsLeft: WALLS_PER_PLAYER },
+    2: { row: 0, col: 4, wallsLeft: WALLS_PER_PLAYER }
   });
-  const [walls, setWalls] = useState([]);
-  const [mode, setMode] = useState('move'); // 'move' or 'wall'
-  const [gameHistory, setGameHistory] = useState([]);
+  const [currentPlayer, setCurrentPlayer] = useState(1);
+  const [gameMode, setGameMode] = useState('move');
   const [winner, setWinner] = useState(null);
+  const [history, setHistory] = useState([]);
   const [showWelcome, setShowWelcome] = useState(true);
-
-  // Audio context for sound effects
   const [audioContext, setAudioContext] = useState(null);
+  const [isAIGame, setIsAIGame] = useState(false);
+  const [aiDifficulty, setAiDifficulty] = useState('medium');
 
+  // Initialize audio context
   useEffect(() => {
-    // Initialize audio context
-    if (!audioContext && window.AudioContext) {
-      setAudioContext(new AudioContext());
+    const initAudio = () => {
+      const ctx = createAudioContext();
+      setAudioContext(ctx);
+    };
+    
+    const handleFirstInteraction = () => {
+      initAudio();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    
+    document.addEventListener('click', handleFirstInteraction);
+    document.addEventListener('touchstart', handleFirstInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, []);
+
+  // Register service worker
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((registration) => {
+          console.log('SW registered: ', registration);
+        })
+        .catch((registrationError) => {
+          console.log('SW registration failed: ', registrationError);
+        });
     }
-  }, [audioContext]);
+  }, []);
 
-  // Sound generation functions
-  const playSound = useCallback((frequency, duration, type = 'sine') => {
-    if (!audioContext) return;
-    
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-    oscillator.type = type;
-    
-    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + duration);
-  }, [audioContext]);
-
-  const playMoveSound = useCallback(() => playSound(440, 0.1), [playSound]);
-  const playWallSound = useCallback(() => playSound(220, 0.2), [playSound]);
-  const playWinSound = useCallback(() => {
-    playSound(523, 0.3);
-    setTimeout(() => playSound(659, 0.3), 150);
-    setTimeout(() => playSound(784, 0.5), 300);
-  }, [playSound]);
-  const playUndoSound = useCallback(() => playSound(330, 0.15), [playSound]);
-
-  // Initialize game
-  const initializeGame = (mode) => {
-    setGameMode(mode);
-    setCurrentPlayer(1);
-    setPlayers({
-      1: { row: 8, col: 4, walls: INITIAL_WALLS },
-      2: { row: 0, col: 4, walls: INITIAL_WALLS }
-    });
-    setWalls([]);
-    setMode('move');
-    setGameHistory([]);
-    setWinner(null);
-  };
-
-  // Check if move is valid
-  const isValidMove = (player, newRow, newCol) => {
-    const currentPos = players[player];
-    const rowDiff = Math.abs(newRow - currentPos.row);
-    const colDiff = Math.abs(newCol - currentPos.col);
-    
-    // Must move exactly one square in one direction
-    if ((rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1)) {
-      // Check for walls blocking the move
-      const isBlocked = walls.some(wall => {
-        if (wall.type === 'horizontal') {
-          // Horizontal wall blocks vertical movement
-          if (rowDiff === 1) {
-            const wallRow = Math.min(currentPos.row, newRow);
-            const wallCol = Math.min(currentPos.col, newCol);
-            return wall.row === wallRow && wall.col === wallCol;
-          }
-        } else if (wall.type === 'vertical') {
-          // Vertical wall blocks horizontal movement
-          if (colDiff === 1) {
-            const wallRow = Math.min(currentPos.row, newRow);
-            const wallCol = Math.min(currentPos.col, newCol);
-            return wall.row === wallRow && wall.col === wallCol;
-          }
+  // AI move logic
+  useEffect(() => {
+    if (isAIGame && currentPlayer === 2 && !winner) {
+      const timer = setTimeout(() => {
+        const aiMove = getAIMove(players, walls, aiDifficulty);
+        if (aiMove) {
+          movePlayer(aiMove.row, aiMove.col);
         }
-        return false;
-      });
+      }, 1000); // 1 second delay for AI move
       
-      if (isBlocked) return false;
-      
-      // Check if destination is occupied by other player
-      const otherPlayer = player === 1 ? 2 : 1;
-      const otherPos = players[otherPlayer];
-      
-      if (newRow === otherPos.row && newCol === otherPos.col) {
-        return false; // Can't move to occupied square
+      return () => clearTimeout(timer);
+    }
+  }, [currentPlayer, isAIGame, players, walls, aiDifficulty, winner]);
+
+  // Check for winner
+  useEffect(() => {
+    if (players[1].row === 0) {
+      setWinner(1);
+      if (audioContext) {
+        playSound(audioContext, 523, 0.2);
+        setTimeout(() => playSound(audioContext, 659, 0.2), 200);
+        setTimeout(() => playSound(audioContext, 784, 0.4), 400);
       }
+    } else if (players[2].row === 8) {
+      setWinner(2);
+      if (audioContext) {
+        playSound(audioContext, 523, 0.2);
+        setTimeout(() => playSound(audioContext, 659, 0.2), 200);
+        setTimeout(() => playSound(audioContext, 784, 0.4), 400);
+      }
+    }
+  }, [players, audioContext]);
+
+  const saveState = useCallback(() => {
+    setHistory(prev => [...prev, { 
+      board: JSON.parse(JSON.stringify(board)), 
+      walls: JSON.parse(JSON.stringify(walls)), 
+      players: JSON.parse(JSON.stringify(players)), 
+      currentPlayer, 
+      gameMode 
+    }]);
+  }, [board, walls, players, currentPlayer, gameMode]);
+
+  const undoMove = useCallback(() => {
+    if (history.length > 0) {
+      const lastState = history[history.length - 1];
+      setBoard(lastState.board);
+      setWalls(lastState.walls);
+      setPlayers(lastState.players);
+      setCurrentPlayer(lastState.currentPlayer);
+      setGameMode(lastState.gameMode);
+      setHistory(prev => prev.slice(0, prev.length - 1));
       
+      if (audioContext) {
+        playSound(audioContext, 300, 0.1);
+      }
+    }
+  }, [history, audioContext]);
+
+  const isValidMove = (player, newRow, newCol) => {
+    if (newRow < 0 || newRow >= BOARD_SIZE || newCol < 0 || newCol >= BOARD_SIZE) {
+      return false;
+    }
+
+    const currentRow = players[player].row;
+    const currentCol = players[player].col;
+
+    const otherPlayer = player === 1 ? 2 : 1;
+    const otherPlayerRow = players[otherPlayer].row;
+    const otherPlayerCol = players[otherPlayer].col;
+
+    const rowDiff = Math.abs(newRow - currentRow);
+    const colDiff = Math.abs(newCol - currentCol);
+
+    // Normal move (one step)
+    if (rowDiff + colDiff === 1) {
+      // Check for walls blocking the path
+      // Moving down (increasing row)
+      if (newRow > currentRow && walls.horizontal[currentRow] && walls.horizontal[currentRow][currentCol]) return false;
+      // Moving up (decreasing row)  
+      if (newRow < currentRow && walls.horizontal[newRow] && walls.horizontal[newRow][currentCol]) return false;
+      // Moving right (increasing col)
+      if (newCol > currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][currentCol]) return false;
+      // Moving left (decreasing col)
+      if (newCol < currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][newCol]) return false;
+
+      // Check if target position is occupied by another player
+      if (newRow === otherPlayerRow && newCol === otherPlayerCol) {
+        return false;
+      }
+
       return true;
     }
-    
-    // Check for jumping over other player
-    if ((rowDiff === 2 && colDiff === 0) || (rowDiff === 0 && colDiff === 2)) {
-      const otherPlayer = player === 1 ? 2 : 1;
-      const otherPos = players[otherPlayer];
-      const middleRow = (currentPos.row + newRow) / 2;
-      const middleCol = (currentPos.col + newCol) / 2;
+
+    // Jump move (two steps) - only if other player is directly adjacent
+    if (rowDiff === 2 && colDiff === 0) { // Vertical jump
+      const middleRow = currentRow + (newRow > currentRow ? 1 : -1);
       
-      // Other player must be in the middle
-      if (otherPos.row === middleRow && otherPos.col === middleCol) {
-        // Check if there are walls blocking the jump
-        const firstMoveBlocked = walls.some(wall => {
-          if (wall.type === 'horizontal' && rowDiff === 2) {
-            return wall.row === Math.min(currentPos.row, middleRow) && wall.col === currentPos.col;
-          } else if (wall.type === 'vertical' && colDiff === 2) {
-            return wall.row === currentPos.row && wall.col === Math.min(currentPos.col, middleCol);
-          }
-          return false;
-        });
+      // Check if other player is in the middle position
+      if (middleRow === otherPlayerRow && currentCol === otherPlayerCol) {
+        // Check for walls blocking the first step
+        if (newRow > currentRow && walls.horizontal[currentRow] && walls.horizontal[currentRow][currentCol]) return false;
+        if (newRow < currentRow && walls.horizontal[middleRow] && walls.horizontal[middleRow][currentCol]) return false;
         
-        const secondMoveBlocked = walls.some(wall => {
-          if (wall.type === 'horizontal' && rowDiff === 2) {
-            return wall.row === Math.min(middleRow, newRow) && wall.col === middleCol;
-          } else if (wall.type === 'vertical' && colDiff === 2) {
-            return wall.row === middleRow && wall.col === Math.min(middleCol, newCol);
-          }
-          return false;
-        });
+        // Check for walls blocking the second step (jump)
+        if (newRow > currentRow && walls.horizontal[middleRow] && walls.horizontal[middleRow][currentCol]) return false;
+        if (newRow < currentRow && walls.horizontal[newRow] && walls.horizontal[newRow][currentCol]) return false;
         
-        return !firstMoveBlocked && !secondMoveBlocked;
+        return true;
       }
     }
     
+    if (colDiff === 2 && rowDiff === 0) { // Horizontal jump
+      const middleCol = currentCol + (newCol > currentCol ? 1 : -1);
+      
+      // Check if other player is in the middle position
+      if (currentRow === otherPlayerRow && middleCol === otherPlayerCol) {
+        // Check for walls blocking the first step
+        if (newCol > currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][currentCol]) return false;
+        if (newCol < currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][middleCol]) return false;
+        
+        // Check for walls blocking the second step (jump)
+        if (newCol > currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][middleCol]) return false;
+        if (newCol < currentCol && walls.vertical[currentRow] && walls.vertical[currentRow][newCol]) return false;
+        
+        return true;
+      }
+    }
+
     return false;
   };
 
-  // Check if wall placement is valid
-  const isValidWallPlacement = (row, col, type) => {
-    // Check if wall already exists at this position
-    const wallExists = walls.some(wall => 
-      wall.row === row && wall.col === col && wall.type === type
-    );
-    
-    if (wallExists) return false;
-    
-    // Check bounds
-    if (type === 'horizontal') {
-      if (row < 0 || row >= BOARD_SIZE - 1 || col < 0 || col >= BOARD_SIZE - 1) return false;
-    } else {
-      if (row < 0 || row >= BOARD_SIZE - 1 || col < 0 || col >= BOARD_SIZE - 1) return false;
-    }
-    
-    // TODO: Add pathfinding check to ensure both players can still reach their goals
-    return true;
-  };
-
-  // Move player
   const movePlayer = (row, col) => {
-    if (mode !== 'move' || winner) return;
-    
-    if (isValidMove(currentPlayer, row, col)) {
-      const newState = {
-        players: {
-          ...players,
-          [currentPlayer]: { ...players[currentPlayer], row, col }
-        },
-        walls: [...walls],
-        currentPlayer,
-        mode
-      };
+    if (winner) return;
+
+    if (gameMode === 'move' && isValidMove(currentPlayer, row, col)) {
+      saveState();
+      setPlayers(prev => ({
+        ...prev,
+        [currentPlayer]: { ...prev[currentPlayer], row, col }
+      }));
+      setCurrentPlayer(currentPlayer === 1 ? 2 : 1);
       
-      setGameHistory([...gameHistory, { players, walls, currentPlayer, mode }]);
-      setPlayers(newState.players);
-      playMoveSound();
-      
-      // Check for win condition
-      if ((currentPlayer === 1 && row === 0) || (currentPlayer === 2 && row === 8)) {
-        setWinner(currentPlayer);
-        playWinSound();
-        return;
-      }
-      
-      // Switch to next player
-      if (gameMode === 'pvp') {
-        setCurrentPlayer(currentPlayer === 1 ? 2 : 1);
-      } else if (gameMode.startsWith('ai-') && currentPlayer === 1) {
-        setCurrentPlayer(2);
-        // AI will move after a short delay
-        setTimeout(() => makeAIMove(), 500);
+      if (audioContext) {
+        playSound(audioContext, 440, 0.1);
       }
     }
   };
 
-  // Place wall
-  const placeWall = (row, col, type) => {
-    if (mode !== 'wall' || winner || players[currentPlayer].walls <= 0) return;
+  const placeWall = (type, row, col) => {
+    if (winner) return;
+    if (gameMode !== 'wall' || players[currentPlayer].wallsLeft <= 0) return;
+
+    const newWalls = JSON.parse(JSON.stringify(walls));
+    let wallPlaced = false;
     
-    if (isValidWallPlacement(row, col, type)) {
-      const newWalls = [...walls, { row, col, type }];
-      const newPlayers = {
-        ...players,
-        [currentPlayer]: { ...players[currentPlayer], walls: players[currentPlayer].walls - 1 }
-      };
-      
-      setGameHistory([...gameHistory, { players, walls, currentPlayer, mode }]);
+    if (type === 'horizontal' && row < BOARD_SIZE - 1 && col < BOARD_SIZE - 1) {
+      // Check if both positions are free
+      if (!newWalls.horizontal[row][col] && !newWalls.horizontal[row][col + 1]) {
+        saveState();
+        newWalls.horizontal[row][col] = true;
+        newWalls.horizontal[row][col + 1] = true;
+        wallPlaced = true;
+      }
+    } else if (type === 'vertical' && row < BOARD_SIZE - 1 && col < BOARD_SIZE - 1) {
+      // Check if both positions are free
+      if (!newWalls.vertical[row][col] && !newWalls.vertical[row + 1][col]) {
+        saveState();
+        newWalls.vertical[row][col] = true;
+        newWalls.vertical[row + 1][col] = true;
+        wallPlaced = true;
+      }
+    }
+
+    if (wallPlaced) {
       setWalls(newWalls);
-      setPlayers(newPlayers);
-      playWallSound();
+      setPlayers(prev => ({
+        ...prev,
+        [currentPlayer]: { 
+          ...prev[currentPlayer], 
+          wallsLeft: prev[currentPlayer].wallsLeft - 1 
+        }
+      }));
+      setCurrentPlayer(currentPlayer === 1 ? 2 : 1);
+      setGameMode('move');
       
-      // Switch to next player
-      if (gameMode === 'pvp') {
-        setCurrentPlayer(currentPlayer === 1 ? 2 : 1);
-      } else if (gameMode.startsWith('ai-') && currentPlayer === 1) {
-        setCurrentPlayer(2);
-        // AI will move after a short delay
-        setTimeout(() => makeAIMove(), 500);
+      if (audioContext) {
+        playSound(audioContext, 220, 0.2, 'square');
       }
     }
   };
 
-  // AI Move Logic
-  const makeAIMove = () => {
-    if (currentPlayer !== 2 || winner) return;
-    
-    const aiLevel = gameMode.split('-')[1]; // 'easy', 'medium', 'hard'
-    let move = null;
-    
-    if (aiLevel === 'easy') {
-      // Random moves
-      move = getRandomMove();
-    } else if (aiLevel === 'medium') {
-      // Try to move towards goal with some randomness
-      move = Math.random() < 0.7 ? getBestMove() : getRandomMove();
-    } else if (aiLevel === 'hard') {
-      // Smart strategy
-      move = getBestMove();
-    }
-    
-    if (move) {
-      if (move.type === 'move') {
-        movePlayer(move.row, move.col);
-      } else if (move.type === 'wall') {
-        placeWall(move.row, move.col, move.wallType);
-      }
-    }
-  };
-
-  const getRandomMove = () => {
-    const aiPos = players[2];
-    const possibleMoves = [];
-    
-    // Try all adjacent moves
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (Math.abs(dr) + Math.abs(dc) === 1) { // Only orthogonal moves
-          const newRow = aiPos.row + dr;
-          const newCol = aiPos.col + dc;
-          if (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
-            if (isValidMove(2, newRow, newCol)) {
-              possibleMoves.push({ type: 'move', row: newRow, col: newCol });
-            }
-          }
-        }
-      }
-    }
-    
-    // Try wall placements if AI has walls
-    if (players[2].walls > 0) {
-      for (let r = 0; r < BOARD_SIZE - 1; r++) {
-        for (let c = 0; c < BOARD_SIZE - 1; c++) {
-          if (isValidWallPlacement(r, c, 'horizontal')) {
-            possibleMoves.push({ type: 'wall', row: r, col: c, wallType: 'horizontal' });
-          }
-          if (isValidWallPlacement(r, c, 'vertical')) {
-            possibleMoves.push({ type: 'wall', row: r, col: c, wallType: 'vertical' });
-          }
-        }
-      }
-    }
-    
-    return possibleMoves.length > 0 ? possibleMoves[Math.floor(Math.random() * possibleMoves.length)] : null;
-  };
-
-  const getBestMove = () => {
-    const aiPos = players[2];
-    const playerPos = players[1];
-    
-    // Priority 1: Move towards goal (bottom)
-    const movesToGoal = [];
-    if (aiPos.row < BOARD_SIZE - 1 && isValidMove(2, aiPos.row + 1, aiPos.col)) {
-      movesToGoal.push({ type: 'move', row: aiPos.row + 1, col: aiPos.col, priority: 10 });
-    }
-    
-    // Priority 2: Block player if they're close to winning
-    if (playerPos.row <= 2 && players[2].walls > 0) {
-      // Try to place walls to block player
-      const blockingWalls = [];
-      for (let c = Math.max(0, playerPos.col - 1); c <= Math.min(BOARD_SIZE - 2, playerPos.col + 1); c++) {
-        if (isValidWallPlacement(playerPos.row, c, 'horizontal')) {
-          blockingWalls.push({ type: 'wall', row: playerPos.row, col: c, wallType: 'horizontal', priority: 8 });
-        }
-      }
-      if (blockingWalls.length > 0) {
-        return blockingWalls[0];
-      }
-    }
-    
-    // Priority 3: Other valid moves
-    const otherMoves = [];
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (Math.abs(dr) + Math.abs(dc) === 1) {
-          const newRow = aiPos.row + dr;
-          const newCol = aiPos.col + dc;
-          if (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
-            if (isValidMove(2, newRow, newCol)) {
-              otherMoves.push({ type: 'move', row: newRow, col: newCol, priority: 5 });
-            }
-          }
-        }
-      }
-    }
-    
-    // Return best move
-    const allMoves = [...movesToGoal, ...otherMoves];
-    if (allMoves.length > 0) {
-      allMoves.sort((a, b) => b.priority - a.priority);
-      return allMoves[0];
-    }
-    
-    return getRandomMove();
-  };
-
-  // Undo last move
-  const undoMove = () => {
-    if (gameHistory.length === 0) return;
-    
-    const lastState = gameHistory[gameHistory.length - 1];
-    setPlayers(lastState.players);
-    setWalls(lastState.walls);
-    setCurrentPlayer(lastState.currentPlayer);
-    setMode(lastState.mode);
-    setGameHistory(gameHistory.slice(0, -1));
+  const resetGame = () => {
+    setBoard(createBoard());
+    setWalls(createWalls());
+    setPlayers({
+      1: { row: 8, col: 4, wallsLeft: WALLS_PER_PLAYER },
+      2: { row: 0, col: 4, wallsLeft: WALLS_PER_PLAYER }
+    });
+    setCurrentPlayer(1);
+    setGameMode('move');
     setWinner(null);
-    playUndoSound();
+    setHistory([]);
+    
+    if (audioContext) {
+      playSound(audioContext, 330, 0.15);
+    }
   };
 
-  // Render board cell
+  const startAIGame = (difficulty) => {
+    setIsAIGame(true);
+    setAiDifficulty(difficulty);
+    setShowWelcome(false);
+    resetGame();
+  };
+
+  const startHumanGame = () => {
+    setIsAIGame(false);
+    setShowWelcome(false);
+    resetGame();
+  };
+
   const renderCell = (row, col) => {
     const isPlayer1 = players[1].row === row && players[1].col === col;
     const isPlayer2 = players[2].row === row && players[2].col === col;
     
-    let cellClass = 'board-cell';
-    if (isPlayer1) cellClass += ' player1';
-    if (isPlayer2) cellClass += ' player2';
-    
-    const handleClick = () => {
-      if (mode === 'move') {
-        movePlayer(row, col);
-      }
-    };
-    
     return (
-      <div key={`${row}-${col}`} className={cellClass} onClick={handleClick}>
-        {isPlayer1 && '♜'}
-        {isPlayer2 && '♞'}
-      </div>
-    );
-  };
-
-  // Render wall slots
-  const renderWallSlots = () => {
-    const slots = [];
-    
-    // Horizontal wall slots
-    for (let row = 0; row < BOARD_SIZE - 1; row++) {
-      for (let col = 0; col < BOARD_SIZE - 1; col++) {
-        const isPlaced = walls.some(w => w.row === row && w.col === col && w.type === 'horizontal');
-        const slotClass = `wall-slot horizontal ${isPlaced ? 'placed' : ''}`;
+      <div
+        key={`${row}-${col}`}
+        className={`cell ${isPlayer1 ? 'player1' : ''} ${isPlayer2 ? 'player2' : ''}`}
+        onClick={() => movePlayer(row, col)}
+      >
+        {isPlayer1 && <div className="pawn pawn-1">♜</div>}
+        {isPlayer2 && <div className="pawn pawn-2">♞</div>}
         
-        slots.push(
+        {/* Horizontal wall slots - only show if not at the bottom edge */}
+        {row < BOARD_SIZE - 1 && col < BOARD_SIZE - 1 && (
           <div
-            key={`h-${row}-${col}`}
-            className={slotClass}
-            style={{
-              gridRow: row * 2 + 2,
-              gridColumn: `${col * 2 + 1} / span 3`
+            className={`wall-slot horizontal ${walls.horizontal[row][col] ? 'wall-placed' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              placeWall('horizontal', row, col);
             }}
-            onClick={() => mode === 'wall' && !isPlaced && placeWall(row, col, 'horizontal')}
           />
-        );
-      }
-    }
-    
-    // Vertical wall slots
-    for (let row = 0; row < BOARD_SIZE - 1; row++) {
-      for (let col = 0; col < BOARD_SIZE - 1; col++) {
-        const isPlaced = walls.some(w => w.row === row && w.col === col && w.type === 'vertical');
-        const slotClass = `wall-slot vertical ${isPlaced ? 'placed' : ''}`;
-        
-        slots.push(
-          <div
-            key={`v-${row}-${col}`}
-            className={slotClass}
-            style={{
-              gridRow: `${row * 2 + 1} / span 3`,
-              gridColumn: col * 2 + 2
-            }}
-            onClick={() => mode === 'wall' && !isPlaced && placeWall(row, col, 'vertical')}
-          />
-        );
-      }
-    }
-    
-    return slots;
-  };
-
-  if (gameMode === 'menu') {
-    return (
-      <div className="game-container">
-        {showWelcome && (
-          <div className="modal-overlay">
-            <div className="modal-content welcome-modal">
-              <h2 className="text-2xl font-bold mb-4">مرحباً بك في لعبة Wall Chess!</h2>
-              <div className="rules-list">
-                <h3 className="text-lg font-semibold mb-2">قواعد اللعبة:</h3>
-                <p>🎯 <strong>الهدف:</strong> كن أول لاعب يصل بقطعته إلى الجانب الآخر من اللوحة</p>
-                <p>🚶 <strong>الحركة:</strong> يمكن تحريك القطعة مربع واحد في أي اتجاه (أعلى، أسفل، يمين، يسار)</p>
-                <p>🦘 <strong>القفز:</strong> إذا كان هناك لاعب آخر في المربع المجاور، يمكن القفز فوقه</p>
-                <p>🧱 <strong>الجدران:</strong> يمكن وضع جدار لمنع حركة الخصم (كل جدار يغطي مربعين)</p>
-                <p>⚠️ <strong>القيود:</strong> لا يمكن وضع جدار يمنع اللاعب من الوصول إلى هدفه نهائياً</p>
-                <p>🔢 <strong>عدد الجدران:</strong> كل لاعب يمتلك 8 جدران</p>
-                
-                <h3 className="text-lg font-semibold mb-2 mt-4">كيفية اللعب:</h3>
-                <p>🔴 اللاعب الأحمر (♜) يبدأ من الأسفل ويحاول الوصول للأعلى</p>
-                <p>🔵 اللاعب الأزرق (♞) يبدأ من الأعلى ويحاول الوصول للأسفل</p>
-                <p>🔄 استخدم زر "تبديل الوضع" للتنقل بين وضع التحريك ووضع الجدران</p>
-                <p>↩️ يمكن استخدام زر "تراجع" للعودة خطوة واحدة</p>
-              </div>
-              <button 
-                className="btn btn-primary mt-4"
-                onClick={() => setShowWelcome(false)}
-              >
-                ابدأ اللعب
-              </button>
-            </div>
-          </div>
         )}
         
-        <div className="flex flex-col items-center justify-center min-h-screen">
-          <h1 className="text-4xl font-bold mb-8">Wall Chess</h1>
-          <div className="space-y-4">
-            <button 
-              className="btn btn-primary w-64"
-              onClick={() => initializeGame('pvp')}
-            >
-              لاعب ضد لاعب
-            </button>
-            <div className="ai-buttons">
-              <button 
-                className="btn btn-secondary"
-                onClick={() => initializeGame('ai-easy')}
-              >
-                ضد الكمبيوتر - سهل 🤖
-              </button>
-              <button 
-                className="btn btn-secondary"
-                onClick={() => initializeGame('ai-medium')}
-              >
-                ضد الكمبيوتر - متوسط 🎯
-              </button>
-              <button 
-                className="btn btn-secondary"
-                onClick={() => initializeGame('ai-hard')}
-              >
-                ضد الكمبيوتر - صعب 🧠
-              </button>
-            </div>
-          </div>
-        </div>
+        {/* Vertical wall slots - only show if not at the right edge */}
+        {col < BOARD_SIZE - 1 && row < BOARD_SIZE - 1 && (
+          <div
+            className={`wall-slot vertical ${walls.vertical[row][col] ? 'wall-placed' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              placeWall('vertical', row, col);
+            }}
+          />
+        )}
       </div>
     );
+  };
+
+  if (showWelcome) {
+    return <WelcomeModal 
+      onClose={() => setShowWelcome(false)} 
+      onStartGame={startHumanGame}
+      onStartAI={startAIGame}
+    />;
   }
 
   return (
-    <div className="game-container">
-      {winner && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <h2 className="text-2xl font-bold mb-4">
-              {winner === 1 ? 'اللاعب الأحمر فاز!' : 'اللاعب الأزرق فاز!'}
-            </h2>
-            <div className="space-y-2">
-              <button 
-                className="btn btn-primary"
-                onClick={() => initializeGame(gameMode)}
-              >
-                لعب مرة أخرى
-              </button>
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setGameMode('menu')}
-              >
-                العودة للقائمة الرئيسية
-              </button>
-            </div>
+    <div className="app">
+      <header className="header">
+        <h1>Wall Chess</h1>
+        {winner ? (
+          <div className="winner">
+            🎉 {isAIGame && winner === 2 ? 'الكمبيوتر فاز!' : `اللاعب ${winner} فاز!`} 🎉
+          </div>
+        ) : (
+          <div className="game-info">
+            <div>اللاعب الحالي: {isAIGame && currentPlayer === 2 ? 'الكمبيوتر' : currentPlayer}</div>
+            <div>الوضع: {gameMode === 'move' ? 'تحريك القطعة' : 'وضع جدار'}</div>
+            {isAIGame && <div>مستوى الصعوبة: {aiDifficulty === 'easy' ? 'سهل' : aiDifficulty === 'medium' ? 'متوسط' : 'صعب'}</div>}
+          </div>
+        )}
+      </header>
+
+      <div className="game-container">
+        <div className="player-info">
+          <div className={`player-card ${currentPlayer === 1 ? 'active' : ''}`}>
+            <div>♜ اللاعب 1</div>
+            <div>الجدران المتبقية: {players[1].wallsLeft}</div>
+          </div>
+          <div className={`player-card ${currentPlayer === 2 ? 'active' : ''}`}>
+            <div>♞ {isAIGame ? 'الكمبيوتر' : 'اللاعب 2'}</div>
+            <div>الجدران المتبقية: {players[2].wallsLeft}</div>
           </div>
         </div>
-      )}
-      
-      <div className="flex flex-col items-center">
-        <div className="game-info">
-          <h1 className="text-3xl font-bold mb-4">Wall Chess</h1>
-          <p className="text-lg">
-            {gameMode === 'pvp' ? 'لاعب ضد لاعب' : 
-             gameMode === 'ai-easy' ? 'ضد الكمبيوتر - سهل' :
-             gameMode === 'ai-medium' ? 'ضد الكمبيوتر - متوسط' :
-             'ضد الكمبيوتر - صعب'}
-          </p>
-        </div>
-        
-        <div className="mobile-layout sm:desktop-layout">
-          <div className="flex gap-8 mb-6">
-            <div className={`player-info ${currentPlayer === 1 ? 'active' : ''}`}>
-              <span className="text-2xl">♜</span>
-              <div>
-                <div className="font-bold">اللاعب الأحمر</div>
-                <div className="text-sm">جدران: {players[1].walls}</div>
-              </div>
-            </div>
-            
-            <div className={`player-info ${currentPlayer === 2 ? 'active' : ''}`}>
-              <span className="text-2xl">♞</span>
-              <div>
-                <div className="font-bold">اللاعب الأزرق</div>
-                <div className="text-sm">جدران: {players[2].walls}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="game-board">
-          {Array.from({ length: BOARD_SIZE }, (_, row) =>
-            Array.from({ length: BOARD_SIZE }, (_, col) => renderCell(row, col))
+
+        <div className="board">
+          {board.map((row, rowIndex) =>
+            row.map((_, colIndex) => renderCell(rowIndex, colIndex))
           )}
-          {renderWallSlots()}
         </div>
-        
-        <div className="game-controls">
-          <button 
-            className={`btn ${mode === 'move' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setMode(mode === 'move' ? 'wall' : 'move')}
+
+        <div className="controls">
+          <Button
+            onClick={() => setGameMode(gameMode === 'move' ? 'wall' : 'move')}
+            disabled={winner || players[currentPlayer].wallsLeft <= 0 || (isAIGame && currentPlayer === 2)}
+            className="mode-button"
           >
-            {mode === 'move' ? 'تبديل إلى وضع الجدار' : 'تبديل إلى وضع التحريك'}
-          </button>
-          
-          <button 
-            className="btn btn-secondary"
-            onClick={undoMove}
-            disabled={gameHistory.length === 0}
-          >
+            {gameMode === 'move' ? 'تبديل إلى وضع الجدار' : 'تبديل إلى وضع التحريك'}
+          </Button>
+          <Button onClick={undoMove} disabled={history.length === 0} className="undo-button">
             تراجع
-          </button>
-          
-          <button 
-            className="btn btn-danger"
-            onClick={() => setGameMode('menu')}
-          >
-            العودة للقائمة
-          </button>
+          </Button>
+          <Button onClick={resetGame} className="reset-button">
+            لعبة جديدة
+          </Button>
+          <Button onClick={() => setShowWelcome(true)} className="menu-button">
+            القائمة الرئيسية
+          </Button>
         </div>
       </div>
     </div>

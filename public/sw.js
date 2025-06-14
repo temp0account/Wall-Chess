@@ -5,7 +5,8 @@ const urlsToCache = [
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './assets/'
 ];
 
 self.addEventListener('install', (event) => {
@@ -13,7 +14,7 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('Opened cache');
-        return cache.addAll(urlsToCache);
+        return cache.addAll(urlsToCache.map(url => new Request(url, {cache: 'reload'})));
       })
       .catch((error) => {
         console.log('Cache addAll failed:', error);
@@ -39,30 +40,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Return cached version if available
+        // Return cached version or fetch from network
         if (response) {
           return response;
         }
         
-        // Try to fetch from network
         return fetch(event.request).then((response) => {
           // Check if we received a valid response
           if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
           }
 
-          // Clone the response for caching
+          // Clone the response
           const responseToCache = response.clone();
 
-          // Cache the response for future use
           caches.open(CACHE_NAME)
             .then((cache) => {
               cache.put(event.request, responseToCache);
@@ -74,13 +68,7 @@ self.addEventListener('fetch', (event) => {
           if (event.request.destination === 'document') {
             return caches.match('./index.html');
           }
-          // For other resources, return a basic error response
-          return new Response('Offline - Resource not available', {
-            status: 503,
-            statusText: 'Service Unavailable'
-          });
         });
       })
   );
 });
-

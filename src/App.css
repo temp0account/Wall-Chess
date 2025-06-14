@@ -34,7 +34,7 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
@@ -76,6 +76,40 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -83,143 +117,218 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    direction: rtl;
   }
 }
 
 /* Wall Chess Game Styles */
-.game-container {
-  @apply min-h-screen bg-gray-900 text-white p-4;
+.app {
+  @apply min-h-screen bg-gray-900 text-gray-100 p-4;
+  direction: rtl;
 }
 
-.game-board {
-  @apply grid grid-cols-9 gap-1 bg-gray-800 p-4 rounded-lg shadow-2xl;
-  width: min(90vw, 500px);
-  height: min(90vw, 500px);
-}
-
-.board-cell {
-  @apply bg-gray-700 border border-gray-600 rounded-sm cursor-pointer transition-all duration-200 flex items-center justify-center text-2xl;
-  aspect-ratio: 1;
-}
-
-.board-cell:hover {
-  @apply bg-gray-600;
-}
-
-.board-cell.player1 {
-  @apply bg-red-600 text-white;
-}
-
-.board-cell.player2 {
-  @apply bg-blue-600 text-white;
-}
-
-.board-cell.valid-move {
-  @apply bg-green-500/50;
-}
-
-.board-cell.wall-horizontal {
-  @apply bg-yellow-500;
-  height: 4px;
-  margin: 2px 0;
-}
-
-.board-cell.wall-vertical {
-  @apply bg-yellow-500;
-  width: 4px;
-  margin: 0 2px;
-}
-
-.wall-slot {
-  @apply bg-gray-600 cursor-pointer transition-all duration-200;
-}
-
-.wall-slot:hover {
-  @apply bg-yellow-400;
-}
-
-.wall-slot.horizontal {
-  height: 8px;
-  margin: 2px 0;
-}
-
-.wall-slot.vertical {
-  width: 8px;
-  margin: 0 2px;
-}
-
-.wall-slot.placed {
-  @apply bg-yellow-500;
-}
-
-.game-controls {
-  @apply flex flex-col sm:flex-row gap-4 items-center justify-center mt-6;
-}
-
-.game-info {
+.header {
   @apply text-center mb-6;
 }
 
+.header h1 {
+  @apply text-3xl font-bold text-gray-100 mb-4;
+}
+
+.winner {
+  @apply text-2xl font-bold text-green-400 animate-bounce;
+}
+
+.game-info {
+  @apply text-lg text-gray-300;
+}
+
+.game-container {
+  @apply max-w-4xl mx-auto;
+}
+
 .player-info {
-  @apply flex items-center gap-4 p-4 bg-gray-800 rounded-lg;
+  @apply flex justify-between mb-6 gap-4;
 }
 
-.player-info.active {
-  @apply ring-2 ring-blue-500;
+.player-card {
+  @apply bg-gray-800 rounded-lg p-4 shadow-md border-2 border-transparent transition-all;
 }
 
-.btn {
-  @apply px-6 py-2 text-base rounded-md transition-colors font-medium;
+.player-card.active {
+  @apply border-blue-500 bg-gray-700;
 }
 
-.btn-primary {
-  @apply bg-blue-600 hover:bg-blue-700 text-white;
+.board {
+  @apply grid grid-cols-9 gap-1 bg-gray-700 p-4 rounded-lg mb-6 mx-auto;
+  max-width: 500px;
+  aspect-ratio: 1;
 }
 
-.btn-secondary {
-  @apply bg-gray-600 hover:bg-gray-700 text-white;
+.cell {
+  @apply bg-gray-800 border border-gray-600 relative cursor-pointer hover:bg-gray-700 transition-colors;
+  aspect-ratio: 1;
+  position: relative;
 }
 
-.btn-danger {
-  @apply bg-red-600 hover:bg-red-700 text-white;
+.cell.player1 {
+  @apply bg-red-900;
 }
 
-.btn:disabled {
+.cell.player2 {
+  @apply bg-blue-900;
+}
+
+.pawn {
+  @apply absolute inset-0 flex items-center justify-center text-2xl font-bold;
+  z-index: 10;
+  color: #fff;
+}
+
+.pawn-1 {
+  color: #ef4444;
+}
+
+.pawn-2 {
+  color: #3b82f6;
+}
+
+.wall-slot {
+  @apply absolute bg-gray-500 opacity-30 hover:opacity-60 transition-opacity cursor-pointer;
+}
+
+.wall-slot.horizontal {
+  @apply bottom-0 left-0 right-0 h-1;
+  transform: translateY(50%);
+}
+
+.wall-slot.vertical {
+  @apply top-0 bottom-0 right-0 w-1;
+  transform: translateX(50%);
+}
+
+.wall-slot.wall-placed {
+  @apply bg-gray-300 opacity-100;
+}
+
+.controls {
+  @apply flex justify-center gap-4 flex-wrap;
+}
+
+.mode-button, .reset-button, .undo-button, .menu-button {
+  @apply px-6 py-3 text-lg bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors;
+}
+
+.undo-button:disabled {
   @apply opacity-50 cursor-not-allowed;
 }
 
+/* Welcome Modal Styles */
 .modal-overlay {
   @apply fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4;
 }
 
 .modal-content {
-  @apply bg-gray-800 p-6 rounded-lg max-w-md w-full text-center;
+  @apply bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto;
+  direction: rtl;
 }
 
-.welcome-modal {
-  @apply max-w-2xl;
+.modal-content h2 {
+  @apply text-2xl font-bold text-center mb-6 text-blue-400;
 }
 
-.rules-list {
-  @apply text-right space-y-2 text-sm text-gray-300;
+.modal-content h3 {
+  @apply text-xl font-semibold mb-3 text-green-400;
 }
 
-.ai-buttons {
-  @apply grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4;
+.rules-section {
+  @apply mb-6;
 }
 
-.mobile-layout {
+.rules-section ul {
+  @apply list-none space-y-2 mb-4;
+}
+
+.rules-section li {
+  @apply text-gray-300 leading-relaxed;
+}
+
+.modal-buttons {
   @apply flex flex-col items-center gap-4;
 }
 
-.mobile-layout .player-info {
-  @apply flex-row;
+.start-button {
+  @apply px-8 py-3 text-lg bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors;
 }
 
-@media (min-width: 640px) {
-  .desktop-layout .player-info {
+.ai-buttons {
+  @apply flex flex-col items-center gap-3;
+}
+
+.ai-buttons h3 {
+  @apply text-lg font-semibold text-yellow-400 mb-2;
+}
+
+.ai-button {
+  @apply px-6 py-2 text-base rounded-md transition-colors;
+}
+
+.ai-button.easy {
+  @apply bg-green-600 hover:bg-green-700 text-white;
+}
+
+.ai-button.medium {
+  @apply bg-yellow-600 hover:bg-yellow-700 text-white;
+}
+
+.ai-button.hard {
+  @apply bg-red-600 hover:bg-red-700 text-white;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .app {
+    @apply p-2;
+  }
+  
+  .header h1 {
+    @apply text-2xl;
+  }
+  
+  .player-info {
+    @apply flex-row justify-center gap-4;
+  }
+  
+  .board {
+    @apply p-2;
+    max-width: 350px;
+  }
+  
+  .pawn {
+    @apply text-lg;
+  }
+  
+  .controls {
     @apply flex-col;
+  }
+
+  .modal-content {
+    @apply p-4 text-sm;
+  }
+
+  .modal-content h2 {
+    @apply text-xl;
+  }
+
+  .modal-content h3 {
+    @apply text-lg;
+  }
+
+  .modal-buttons {
+    @apply gap-3;
+  }
+
+  .ai-buttons {
+    @apply flex-row flex-wrap justify-center gap-2;
   }
 }
 
